@@ -8,12 +8,13 @@ import torch
 import cv2
 from depth_anything_3.api import DepthAnything3
 from create_depth_video import process_video
+from depth_scaler import EMAMinMaxScaler
 
 class DepthVideoGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Depth Video Creator")
-        self.root.geometry("500x400")
+        self.root.geometry("500x450")
         self.config_file = "gui_config.json"
         
         self.processing_thread = None
@@ -61,8 +62,16 @@ class DepthVideoGUI:
         ttk.Spinbox(settings_frame, from_=252, to=1008, increment=252, textvariable=self.resolution, width=10).grid(row=0, column=1, sticky=tk.W)
 
         ttk.Label(settings_frame, text="Batch Size:").grid(row=1, column=0, sticky=tk.W)
-        self.batch_size = tk.IntVar(value=21)
+        self.batch_size = tk.IntVar(value=1)
         ttk.Spinbox(settings_frame, from_=1, to=100, increment=1, textvariable=self.batch_size, width=10).grid(row=1, column=1, sticky=tk.W)
+        
+        ttk.Label(settings_frame, text="Decay:").grid(row=2, column=0, sticky=tk.W)
+        self.decay = tk.DoubleVar(value=0.9)
+        ttk.Spinbox(settings_frame, from_=0.0, to=1.0, increment=0.05, textvariable=self.decay, width=10).grid(row=2, column=1, sticky=tk.W)
+
+        ttk.Label(settings_frame, text="Buffer Size:").grid(row=3, column=0, sticky=tk.W)
+        self.buffer_size = tk.IntVar(value=22)
+        ttk.Spinbox(settings_frame, from_=1, to=100, increment=1, textvariable=self.buffer_size, width=10).grid(row=3, column=1, sticky=tk.W)
 
         # --- Progress and Status ---
         progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding="10")
@@ -112,7 +121,9 @@ class DepthVideoGUI:
                     self.input_folder.set(config.get("input_folder", ""))
                     self.output_folder.set(config.get("output_folder", ""))
                     self.resolution.set(config.get("resolution", 504))
-                    self.batch_size.set(config.get("batch_size", 21))
+                    self.batch_size.set(config.get("batch_size", 1))
+                    self.decay.set(config.get("decay", 0.9))
+                    self.buffer_size.set(config.get("buffer_size", 22))
         except (json.JSONDecodeError, IOError) as e:
             messagebox.showerror("Error", f"Could not load settings: {e}")
 
@@ -121,7 +132,9 @@ class DepthVideoGUI:
             "input_folder": self.input_folder.get(),
             "output_folder": self.output_folder.get(),
             "resolution": self.resolution.get(),
-            "batch_size": self.batch_size.get()
+            "batch_size": self.batch_size.get(),
+            "decay": self.decay.get(),
+            "buffer_size": self.buffer_size.get()
         }
         try:
             with open(self.config_file, 'w') as f:
@@ -199,6 +212,8 @@ class DepthVideoGUI:
             output_dir = self.output_folder.get()
             resolution = self.resolution.get()
             batch_size = self.batch_size.get()
+            decay = self.decay.get()
+            buffer_size = self.buffer_size.get()
             
             video_files = [f for f in os.listdir(input_dir) if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
             if not video_files:
@@ -248,6 +263,7 @@ class DepthVideoGUI:
                     })
                 
                 try:
+                    scaler = EMAMinMaxScaler(decay=decay, buffer_size=buffer_size)
                     process_video(
                         video_input=input_path,
                         video_output=output_path,
@@ -255,7 +271,8 @@ class DepthVideoGUI:
                         process_res=resolution,
                         batch_size=batch_size,
                         progress_callback=file_progress_callback,
-                        stop_event=self.stop_processing
+                        stop_event=self.stop_processing,
+                        scaler=scaler
                     )
                 except InterruptedError:
                     break # Stop the outer loop as well
