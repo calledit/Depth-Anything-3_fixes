@@ -5,6 +5,7 @@ import os
 import threading
 import queue
 import torch
+import cv2
 from depth_anything_3.api import DepthAnything3
 from create_depth_video import process_video
 
@@ -12,6 +13,7 @@ class DepthVideoGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Depth Video Creator")
+        self.root.geometry("500x400")
         self.config_file = "gui_config.json"
         
         self.processing_thread = None
@@ -32,10 +34,11 @@ class DepthVideoGUI:
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
+        main_frame.columnconfigure(0, weight=1)
 
         # --- Input/Output Folders ---
         path_frame = ttk.LabelFrame(main_frame, text="Folders", padding="10")
-        path_frame.grid(row=0, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        path_frame.grid(row=0, column=0, sticky=(tk.W, tk.E))
         path_frame.columnconfigure(1, weight=1)
 
         ttk.Label(path_frame, text="Input Folder:").grid(row=0, column=0, sticky=tk.W)
@@ -50,17 +53,22 @@ class DepthVideoGUI:
 
         # --- Settings ---
         settings_frame = ttk.LabelFrame(main_frame, text="Settings", padding="10")
-        settings_frame.grid(row=1, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=10)
+        settings_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=10)
         settings_frame.columnconfigure(1, weight=1)
 
         ttk.Label(settings_frame, text="Processing Resolution:").grid(row=0, column=0, sticky=tk.W)
         self.resolution = tk.IntVar(value=504)
         ttk.Spinbox(settings_frame, from_=252, to=1008, increment=252, textvariable=self.resolution, width=10).grid(row=0, column=1, sticky=tk.W)
 
+        ttk.Label(settings_frame, text="Batch Size:").grid(row=1, column=0, sticky=tk.W)
+        self.batch_size = tk.IntVar(value=21)
+        ttk.Spinbox(settings_frame, from_=1, to=100, increment=1, textvariable=self.batch_size, width=10).grid(row=1, column=1, sticky=tk.W)
+
         # --- Progress and Status ---
         progress_frame = ttk.LabelFrame(main_frame, text="Progress", padding="10")
-        progress_frame.grid(row=2, column=0, columnspan=3, sticky=(tk.W, tk.E))
+        progress_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         progress_frame.columnconfigure(0, weight=1)
+        main_frame.rowconfigure(2, weight=1)
 
         self.overall_progress = tk.DoubleVar()
         self.overall_progress_bar = ttk.Progressbar(progress_frame, variable=self.overall_progress, maximum=100)
@@ -76,7 +84,7 @@ class DepthVideoGUI:
 
         # --- Buttons ---
         button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=5, column=0, columnspan=3, pady=(10, 0))
+        button_frame.grid(row=5, column=0, pady=(10, 0))
         self.start_button = ttk.Button(button_frame, text="Start", command=self.start_processing)
         self.start_button.pack(side=tk.LEFT, padx=5)
         self.stop_button = ttk.Button(button_frame, text="Stop", command=self.stop_processing_thread, state=tk.DISABLED)
@@ -104,6 +112,7 @@ class DepthVideoGUI:
                     self.input_folder.set(config.get("input_folder", ""))
                     self.output_folder.set(config.get("output_folder", ""))
                     self.resolution.set(config.get("resolution", 504))
+                    self.batch_size.set(config.get("batch_size", 21))
         except (json.JSONDecodeError, IOError) as e:
             messagebox.showerror("Error", f"Could not load settings: {e}")
 
@@ -111,7 +120,8 @@ class DepthVideoGUI:
         config = {
             "input_folder": self.input_folder.get(),
             "output_folder": self.output_folder.get(),
-            "resolution": self.resolution.get()
+            "resolution": self.resolution.get(),
+            "batch_size": self.batch_size.get()
         }
         try:
             with open(self.config_file, 'w') as f:
@@ -188,6 +198,7 @@ class DepthVideoGUI:
             input_dir = self.input_folder.get()
             output_dir = self.output_folder.get()
             resolution = self.resolution.get()
+            batch_size = self.batch_size.get()
             
             video_files = [f for f in os.listdir(input_dir) if f.lower().endswith(('.mp4', '.avi', '.mov', '.mkv'))]
             if not video_files:
@@ -216,13 +227,24 @@ class DepthVideoGUI:
                 })
 
                 # --- Define Progress Callback for current file ---
-                def file_progress_callback(current_frame, total_frames):
+                cap = cv2.VideoCapture(input_path)
+                if not cap.isOpened():
+                    self.progress_queue.put({"error": f"Could not open video file {filename}"})
+                    continue
+                total_frames_in_file = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                cap.release()
+                
+                frames_done_for_file = 0
+                def file_progress_callback(num_processed_in_batch):
+                    nonlocal frames_done_for_file
                     if self.stop_processing.is_set():
                         raise InterruptedError("Processing stopped by user.")
-                    progress = (current_frame / total_frames) * 100
+                    
+                    frames_done_for_file += num_processed_in_batch
+                    progress = (frames_done_for_file / total_frames_in_file) * 100 if total_frames_in_file > 0 else 0
                     self.progress_queue.put({
                         "file_progress": progress,
-                        "file_status": f"Frame {current_frame} of {total_frames}"
+                        "file_status": f"Frame {frames_done_for_file} of {total_frames_in_file}"
                     })
                 
                 try:
@@ -231,6 +253,7 @@ class DepthVideoGUI:
                         video_output=output_path,
                         model=self.model,
                         process_res=resolution,
+                        batch_size=batch_size,
                         progress_callback=file_progress_callback,
                         stop_event=self.stop_processing
                     )

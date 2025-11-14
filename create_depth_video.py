@@ -1,4 +1,3 @@
-
 import argparse
 import cv2
 import torch
@@ -37,7 +36,7 @@ def depth_to_grayscale(depth, percentile=2):
     
     return grayscale_img
 
-def process_video(video_input, video_output, model, process_res, progress_callback=None, stop_event=None):
+def process_video(video_input, video_output, model, process_res, batch_size=1, progress_callback=None, stop_event=None):
     """
     Processes a single video file to create a depth map video.
     The model is passed as an argument to avoid reloading it for each video.
@@ -54,32 +53,41 @@ def process_video(video_input, video_output, model, process_res, progress_callba
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(video_output, fourcc, fps, (frame_width, frame_height), isColor=True)
 
+    frames_buffer = []
     try:
-        for frame_idx in range(total_frames):
+        while True:
             if stop_event and stop_event.is_set():
                 print("Processing stopped.")
                 break
             
             ret, frame = cap.read()
+            if ret:
+                frames_buffer.append(frame)
+
+            # Process if buffer is full or it's the end of the video and there are frames left
+            if len(frames_buffer) == batch_size or (not ret and len(frames_buffer) > 0):
+                frames_rgb = [cv2.cvtColor(f, cv2.COLOR_BGR2RGB) for f in frames_buffer]
+
+                prediction = model.inference(
+                    frames_rgb,
+                    process_res=process_res
+                )
+                
+                for i in range(len(frames_buffer)):
+                    depth_map = prediction.depth[i]
+                    grayscale_depth = depth_to_grayscale(depth_map)
+                    output_frame = cv2.cvtColor(grayscale_depth, cv2.COLOR_GRAY2BGR)
+                    output_frame = cv2.resize(output_frame, (frame_width, frame_height))
+
+                    out.write(output_frame)
+                
+                if progress_callback:
+                    progress_callback(len(frames_buffer))
+                
+                frames_buffer = []
+
             if not ret:
                 break
-
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            prediction = model.inference(
-                [frame_rgb],
-                process_res=process_res
-            )
-            
-            depth_map = prediction.depth[0]
-            grayscale_depth = depth_to_grayscale(depth_map)
-            output_frame = cv2.cvtColor(grayscale_depth, cv2.COLOR_GRAY2BGR)
-            output_frame = cv2.resize(output_frame, (frame_width, frame_height))
-
-            out.write(output_frame)
-            
-            if progress_callback:
-                progress_callback(frame_idx + 1, total_frames)
     finally:
         cap.release()
         out.release()
@@ -90,6 +98,7 @@ def main():
     parser.add_argument("video_output", help="Path to the output video file.")
     parser.add_argument("--model", default="depth-anything/DA3MONO-LARGE", help="The model to use for depth estimation.")
     parser.add_argument("--process-res", type=int, default=504, help="Processing resolution for the model.")
+    parser.add_argument("--batch-size", type=int, default=21, help="Number of frames to process at once. A larger batch size may increase stability but also memory usage. The user's suggestion of a window of +/- 10 frames corresponds to a batch size of 21.")
     
     args = parser.parse_args()
 
@@ -107,10 +116,10 @@ def main():
         cap.release()
 
         with tqdm(total=total_frames, desc=f"Processing {os.path.basename(args.video_input)}") as pbar:
-            def progress_update(current, total):
-                pbar.update(1)
+            def progress_update(num_processed):
+                pbar.update(num_processed)
 
-            process_video(args.video_input, args.video_output, model, args.process_res, progress_callback=progress_update)
+            process_video(args.video_input, args.video_output, model, args.process_res, batch_size=args.batch_size, progress_callback=progress_update)
         
         print(f"Grayscale depth video saved to {args.video_output}")
     except Exception as e:

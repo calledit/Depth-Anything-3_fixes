@@ -37,3 +37,4 @@ temp*.png
 /assets
 
 venv
+gui_config.json
