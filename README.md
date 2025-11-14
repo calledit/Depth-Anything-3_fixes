@@ -20,7 +20,7 @@ python gui.py
 <!-- <h2 style="border-top: none; margin-top: 3px;">Recovering the Visual Space from Any Views</h2> -->
 
 
-[**Haotong Lin**](https://haotongl.github.io/)<sup>\*</sup> · [**Sili Chen**](https://github.com/SiliChen321)<sup>\*</sup> · [**Junhao Liew**](https://liewjunhao.github.io/)<sup>\*</sup> · [**Donny Y. Chen**](https://donydchen.github.io)<sup>\*</sup> · [**Zhenyu Li**](https://zhyever.github.io/) · [**Guang Shi**](https://scholar.google.com/citations?user=MjXxWbUAAAAJ&hl=en) · [**Jiashi Feng**](https://scholar.google.com.sg/citations?user=Q8iay0gAAAAJ&hl=en)
+[**Haotong Lin**](https://haotongl.github.io/)<sup>\*</sup> · [**Sili Chen**](https://github.com/SiliChen321)<sup>\*</sup> · [**Jun Hao Liew**](https://liewjunhao.github.io/)<sup>\*</sup> · [**Donny Y. Chen**](https://donydchen.github.io)<sup>\*</sup> · [**Zhenyu Li**](https://zhyever.github.io/) · [**Guang Shi**](https://scholar.google.com/citations?user=MjXxWbUAAAAJ&hl=en) · [**Jiashi Feng**](https://scholar.google.com.sg/citations?user=Q8iay0gAAAAJ&hl=en)
 <br>
 [**Bingyi Kang**](https://bingykang.github.io/)<sup>\*&dagger;</sup>
 
@@ -163,7 +163,7 @@ da3 auto assets/examples/SOH \
 
 ```
 
-The model architecture is defined in [`DepthAnything3Net`](src/depth_anything_3/model/da3.py), and specified with a Yaml config file located at [`src/depth_anything_3/configs`](src/depth_anything_3/configs). The input and output processing are handeled by [`DepthAnything3`](src/depth_anything_3/api.py). To customize the model architecutre, simply create a new config file (*e.g.*, `path/to/new/config`) as:
+The model architecture is defined in [`DepthAnything3Net`](src/depth_anything_3/model/da3.py), and specified with a Yaml config file located at [`src/depth_anything_3/configs`](src/depth_anything_3/configs). The input and output processing are handled by [`DepthAnything3`](src/depth_anything_3/api.py). To customize the model architecture, simply create a new config file (*e.g.*, `path/to/new/config`) as:
 
 ```yaml
 __object__:
